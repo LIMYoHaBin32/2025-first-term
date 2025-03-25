@@ -1,0 +1,78 @@
+Python Code
+import serial # 시리얼 통신을 위한 라이브러리 가져오기
+
+# 시리얼 포트 연결하기
+ser = serial.Serial('/dev/ttyS0', 9600, timeout = 1) # '/dev/ttyS0'는 포트 위치, 9600은 통신 속도, timeout=1은 대기 시간
+
+ser.write(b'The World') # 다른 기기로 보낼 메시지 준비 
+
+# 다른 기기에서 오는 메시지 읽기 
+data = ser.read(15) # 최대 15글자까지 읽어올 수 있음
+
+print(data) # 받은 메시지 화면에 출력하기
+
+ser.close() # 포트 닫기
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+C Code
+#include <stdio.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <string.h>
+
+int main()
+{
+    int serial_port = open("/dev/ttyS0", O_RDWR);    // 시리얼 포트 열기
+
+    if (serial_port < 0)    // 포트를 만들지 못했다면 오류 메시지 출력
+    {
+        perror("시리얼 포트 오픈 오류");
+        return -1;
+    }
+
+    struct termios tty;    // 시리얼 포트의 설정을 저장할 구조체 준비
+
+    if (tcgetattr(serial_port, &tty) != 0)    // 현재 포트 설정 읽어오기
+    {
+        perror("포트 오류 발생");
+        close(serial_port);
+        return -1;
+    }
+
+    cfsetispeed(&tty, B9600); // 통신 속도 설정
+    cfsetospeed(&tty, B9600);
+
+    // 데이터 보내는 방식 설정
+    tty.c_cflag &= ~PARENB;   // 에러 검사 방식 끄기
+    tty.c_cflag &= ~CSTOPB;   // 표준 정지 비트 사용
+    tty.c_cflag &= ~CSIZE;    // 데이터 크기 초기화
+    tty.c_cflag |= CS8;       // 8비트로 데이터 보내기
+
+    if (tcsetattr(serial_port, TCSANOW, &tty) != 0) // 설정한 값으로 포트 다시 세팅
+    {
+        perror("포트 오류 발생");
+        close(serial_port);
+        return -1;
+    }
+    
+    const char* message = "The World"; // 다른 기기로 보낼 메시지 준비
+    
+    write(serial_port, message, strlen(message)); // 메시지 보내기
+
+    char buffer[16] = {0}; // 메시지 받을 버퍼 준비
+    int bytes_read = read(serial_port, buffer, sizeof(buffer) - 1);    // 다른 기기에서 온 메시지 읽기
+
+    if (bytes_read > 0) // 받은 메시지가 있다면 화면에 출력
+    {
+        printf("받기: %s\n", buffer);
+    } 
+    else
+    {
+        perror("시리얼 포트 읽기 오류");
+    }
+
+    close(serial_port);  // 포트 닫기
+    return 0;
+}
