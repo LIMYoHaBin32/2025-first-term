@@ -1,0 +1,150 @@
+#include <iostream>
+#include <cstdint>
+#include <unistd.h>
+#include <fcntl.h>
+#include <termios.h>
+
+#define SERIAL_PORT "/dev/ttyUSB0"
+#define BAUD_RATE B115200
+
+class RS485Controller 
+{
+private:
+    int uart_fd;
+
+    uint16_t calculateCRC(uint8_t *data, int length) 
+    {
+        uint16_t crc = 0xFFFF;
+        for(int i = 0; i < length; ++i) 
+        {
+            crc = crc ^ data[i];
+            for(int j = 0; j < 8; ++j) 
+            {
+                if (crc & 0x0001) 
+                {
+                    crc = (crc >> 1) ^ 0xA001;
+                } 
+                
+                else 
+                {
+                    crc = crc >> 1;
+                }
+            }
+        }
+        return crc;
+    }
+
+public:
+    RS485Controller() 
+    {
+        uart_fd = -1;
+    }
+
+    ~RS485Controller() 
+    {
+        if(uart_fd >= 0) 
+        {
+            close(uart_fd);
+            std::cout << "시리얼 포트 닫\n";
+        }
+    }
+
+    bool setupSerialPort() 
+    {
+        uart_fd = open(SERIAL_PORT, O_RDWR | O_NOCTTY);
+        if(uart_fd < 0) 
+        {
+            std::cout << "포트 열기 실패\n";
+            return false;
+        }
+
+        struct termios options;
+        tcgetattr(uart_fd, &options);
+
+        cfsetispeed(&options, BAUD_RATE);
+        cfsetospeed(&options, BAUD_RATE);
+
+        options.c_cflag = (options.c_cflag & ~CSIZE) | CS8;
+        options.c_cflag &= ~PARENB;
+        options.c_cflag &= ~CSTOPB;
+        options.c_cflag |= CLOCAL | CREAD;
+
+        options.c_iflag = 0;
+        options.c_oflag = 0;
+        options.c_lflag = 0;
+
+        tcflush(uart_fd, TCIFLUSH);
+        tcsetattr(uart_fd, TCSANOW, &options);
+
+        std::cout << "시리얼 포트 열림, 보드레이: 115200bps\n";
+        return true;
+    }
+
+    bool controlLED(uint8_t device_id, bool turn_on, int led_number) 
+    {
+        if(uart_fd < 0) 
+        {
+            std::cout << "포트가 안 열림 \n";
+            return false;
+        }
+
+        uint8_t command[8];
+        command[0] = device_id;
+        command[1] = 0x05;
+        command[2] = 0x09;
+        command[3] = 0x10 + led_number;
+        command[4] = turn_on ? 0xFF : 0x00;
+        command[5] = 0x00;
+
+        uint16_t crc = calculateCRC(command, 6);
+        command[6] = crc & 0xFF;
+        command[7] = (crc >> 8) & 0xFF;
+
+        std::cout << "명령 보내기: ";
+        for(int i = 0; i < 8; ++i) 
+        {
+            std::cout << (int)command[i] << " ";
+        }
+        std::cout << "\n";
+
+        int bytes_sent = write(uart_fd, command, 8);
+        if(bytes_sent != 8) 
+        {
+            std::cout << "명령 보내기 실패\n";
+            return false;
+        }
+
+        sleep(1);
+        return true;
+    }
+
+    void blinkLEDs(uint8_t device_id) 
+    {
+        for(int i = 0; i <= 8; ++i) 
+        {
+            controlLED(device_id, true, i);
+            sleep(1);
+            controlLED(device_id, false, i);
+            sleep(1);
+        }
+        std::cout << "LED OFF!\n";
+    }
+};
+
+int main() 
+{
+    RS485Controller controller;
+
+    if(!controller.setupSerialPort()) 
+    {
+        std::cout << "프로그램 종료: 포트 문제\n";
+        return 1;
+    }
+
+    uint8_t device_id = 1;
+    std::cout << "LED ON \n";
+
+    controller.blinkLEDs(device_id);
+
+    return 0;
+}
